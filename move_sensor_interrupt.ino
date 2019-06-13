@@ -1,9 +1,26 @@
+//==================================================================
+//==================================================================
+/*
+ambient light
+
+LED strip & moving sensor & rottary encoder
+
+- switch between low and high level of the light using moving sensor
+- brightness setting for low and high level with rottary encoder 
+- smooth switching between levels (timer interrupt)
+
+*/
+//==================================================================
+//==================================================================
+
+// external interrupt 
+// moving sensor
+
 #define SIGNAL_PIN 2
 
-const byte interruptPin = 2;
 volatile byte state = LOW;
 
-
+//==================================================================
 #include <Adafruit_NeoPixel.h>
 #ifdef __AVR__
 #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
@@ -28,19 +45,58 @@ Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 //   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
 
 
+int lowBrightness = 10;
+int highBrightness = 255;
+int brightness = lowBrightness;
+int neededBrightness = lowBrightness;
+
+//==================================================================
+//==================================================================
+//timer interrupts
+//by Amanda Ghassaei
+//June 2012
+//https://www.instructables.com/id/Arduino-Timer-Interrupts/
+
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+*/
+
+//storage variables
+boolean toggle1 = 0;
+
+//==================================================================
+//==================================================================
+// internal interrupt 
+// rotary encoder 
+
+#include "PinChangeInterrupt.h"
+ 
+#define PINROTA 4  // the pin we are interested in
+#define PINROTB 5  // second pin of rotary encoder
+volatile int rotCounter = 0;    // rotary encoder counter 
+
+//==================================================================
+//==================================================================
+//==================================================================
+//==================================================================
+
 
 
 void setup()
 {
+//==================================================================
   Serial.begin(9600);
-  pinMode(SIGNAL_PIN, INPUT);
   // initialize digital pin LED_BUILTIN as an output.
   pinMode(LED_BUILTIN, OUTPUT);
 
-  pinMode(interruptPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(interruptPin), moveSens, CHANGE);
-
-
+  pinMode(SIGNAL_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(SIGNAL_PIN), moveSens, CHANGE);
+  //==================================================================
+  //==================================================================
 
   // These lines are specifically to support the Adafruit Trinket 5V 16 MHz.
   // Any other board, you can remove this part (but no harm leaving it):
@@ -51,7 +107,44 @@ void setup()
 
   strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
   strip.show();            // Turn OFF all pixels ASAP
-  strip.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
+  strip.setBrightness(brightness); 
+  //==================================================================
+  //==================================================================
+  // timer interrupt
+  pinMode(13, OUTPUT);
+
+  cli();//stop interrupts
+
+  //set timer1 interrupt at 1Hz
+  TCCR1A = 0;// set entire TCCR1A register to 0
+  TCCR1B = 0;// same for TCCR1B
+  TCNT1  = 0;//initialize counter value to 0
+  // set compare match register for 1hz increments
+  //OCR1A = 15624;// = (16*10^6) / (1*1024) - 1 (must be <65536)
+  // 10 Hz
+  OCR1A = 300;
+  // turn on CTC mode
+  TCCR1B |= (1 << WGM12);
+  // Set CS12 and CS10 bits for 1024 prescaler
+  TCCR1B |= (1 << CS12) | (1 << CS10);  
+  // enable timer compare interrupt
+  TIMSK1 |= (1 << OCIE1A);
+  sei();//allow interrupts
+
+  //==================================================================
+  //==================================================================
+
+  Serial.begin(9600);
+  Serial.print("PinChangeInt test on pin ");
+  Serial.print(PINROTA);
+  Serial.println();
+  pinMode(PINROTA, INPUT_PULLUP);     //set the pin to input
+  pinMode(PINROTB, INPUT_PULLUP);     //set the pin to input
+  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(PINROTA), rotCounterCount, RISING);
+
+  //==================================================================
+  //==================================================================
+  // setup() - end
 }
 
 void loop() {
@@ -72,10 +165,16 @@ void loop() {
 void moveSens() {
   if(digitalRead(SIGNAL_PIN)==HIGH) {
     Serial.println("Movement detected.");
-    strip.setBrightness(255); 
+    //strip.setBrightness(highBrightness); 
+    neededBrightness = highBrightness;
+    //digitalWrite(13,HIGH);
+    state = HIGH;
   } else {
     Serial.println("Did not detect movement.");
-    strip.setBrightness(0); 
+    //strip.setBrightness(lowBrightness); 
+    neededBrightness = lowBrightness;
+    //digitalWrite(13,LOW);
+    state = LOW;
   }
 }
 
@@ -155,4 +254,44 @@ void theaterChaseRainbow(int wait) {
       firstPixelHue += 65536 / 90; // One cycle of color wheel over 90 frames
     }
   }
+}
+
+ISR(TIMER1_COMPA_vect){//timer1 interrupt 1Hz toggles pin 13 (LED)
+  //generates pulse wave of frequency 1Hz/2 = 0.5kHz (takes two cycles for full wave- toggle high then toggle low)
+  if(digitalRead(SIGNAL_PIN)==HIGH) {
+    digitalWrite(13,HIGH);
+  } else {
+    digitalWrite(13,LOW);
+  }
+  // increment or decrement brightness
+  if (brightness < neededBrightness) {
+    brightness += min(5, neededBrightness - brightness);
+    strip.setBrightness(brightness); 
+  }
+  if (brightness > neededBrightness) {
+    brightness -= min(5, abs(neededBrightness - brightness));
+    strip.setBrightness(brightness); 
+  }
+}
+
+void rotCounterCount()
+{
+  if (digitalRead(PINROTB) == LOW) {
+    neededBrightness = max(neededBrightness * 1.05, neededBrightness + 1);
+  }
+  else {
+    neededBrightness = min(neededBrightness / 1.05, neededBrightness - 1);
+  }
+  neededBrightness = max(neededBrightness, 0); 
+  neededBrightness = min(neededBrightness, 255); 
+  //strip.setBrightness(brightness); 
+  if (state == HIGH) {
+    highBrightness = neededBrightness;
+  }
+  else {
+    lowBrightness = neededBrightness;
+  }
+  Serial.print(state);
+  Serial.print(" ");
+  Serial.println(neededBrightness, DEC);
 }
