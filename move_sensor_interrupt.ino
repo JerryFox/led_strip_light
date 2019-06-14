@@ -31,7 +31,8 @@ volatile byte state = LOW;
 #define LED_PIN    6
 
 // How many NeoPixels are attached to the Arduino?
-#define LED_COUNT 50
+#define LED_COUNT 1024
+int numberOfPixels = 50;
 
 // Declare our NeoPixel strip object:
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -106,6 +107,7 @@ void setup()
   // END of Trinket-specific code.
 
   strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
+  strip.updateLength(numberOfPixels); // less than LED_COUNT
   strip.show();            // Turn OFF all pixels ASAP
   strip.setBrightness(brightness); 
   //==================================================================
