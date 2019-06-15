@@ -10,6 +10,7 @@ LED strip & moving sensor & rottary encoder
 - smooth switching between levels (timer interrupt)
 
 */
+
 //==================================================================
 //==================================================================
 
@@ -47,7 +48,7 @@ Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 
 int lowBrightness = 10;
-int highBrightness = 255;
+int highBrightness = 50;
 int brightness = lowBrightness;
 int neededBrightness = lowBrightness;
 
@@ -78,7 +79,12 @@ boolean toggle1 = 0;
  
 #define PINROTA 4  // the pin we are interested in
 #define PINROTB 5  // second pin of rotary encoder
+#define PINROTSW 3  // RE push switch 
 volatile int rotCounter = 0;    // rotary encoder counter 
+boolean generalBreak = false;   // light switch off
+boolean generalSetup = false;   // light setup
+unsigned long switchMillis = 0; // last switch push time
+byte generalMenu = 0;  // menu number for setup
 
 //==================================================================
 //==================================================================
@@ -110,6 +116,7 @@ void setup()
   strip.updateLength(numberOfPixels); // less than LED_COUNT
   strip.show();            // Turn OFF all pixels ASAP
   strip.setBrightness(brightness); 
+
   //==================================================================
   //==================================================================
   // timer interrupt
@@ -136,24 +143,27 @@ void setup()
   //==================================================================
   //==================================================================
 
-  Serial.begin(9600);
+  //Serial.begin(9600);
   Serial.print("PinChangeInt test on pin ");
   Serial.print(PINROTA);
   Serial.println();
   pinMode(PINROTA, INPUT_PULLUP);     //set the pin to input
   pinMode(PINROTB, INPUT_PULLUP);     //set the pin to input
+  pinMode(PINROTSW, INPUT_PULLUP);     //set the pin to input
   attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(PINROTA), rotCounterCount, RISING);
+  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(PINROTSW), rotSwitch, RISING);
 
   //==================================================================
   //==================================================================
   // setup() - end
+  //detachPinChangeInterrupt(digitalPinToPinChangeInterrupt(PINROTSW));
 }
 
 void loop() {
   // Fill along the length of the strip in various colors...
-  colorWipe(strip.Color(255,   0,   0), 50); // Red
-  colorWipe(strip.Color(  0, 255,   0), 50); // Green
-  colorWipe(strip.Color(  0,   0, 255), 50); // Blue
+  //colorWipe(strip.Color(255,   0,   0), 50); // Red
+  //colorWipe(strip.Color(  0, 255,   0), 50); // Green
+  //colorWipe(strip.Color(  0,   0, 255), 50); // Blue
 
   // Do a theater marquee effect in various colors...
   //theaterChase(strip.Color(127, 127, 127), 50); // White, half brightness
@@ -162,6 +172,11 @@ void loop() {
 
   rainbow(10);             // Flowing rainbow cycle along the whole strip
   //theaterChaseRainbow(50); // Rainbow-enhanced theaterChase variant
+  if (generalBreak) {
+    strip.clear();
+    strip.show();
+  }
+  //Serial.println("loop");
 }
 
 void moveSens() {
@@ -231,6 +246,7 @@ void rainbow(int wait) {
       // before assigning to each pixel:
       strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(pixelHue)));
     }
+    if (generalBreak) break;
     strip.show(); // Update strip with new contents
     delay(wait);  // Pause for a moment
   }
@@ -258,13 +274,19 @@ void theaterChaseRainbow(int wait) {
   }
 }
 
-ISR(TIMER1_COMPA_vect){//timer1 interrupt 1Hz toggles pin 13 (LED)
-  //generates pulse wave of frequency 1Hz/2 = 0.5kHz (takes two cycles for full wave- toggle high then toggle low)
-  if(digitalRead(SIGNAL_PIN)==HIGH) {
+ISR(TIMER1_COMPA_vect) {
+  // timer1 
+  digitalWrite(13,digitalRead(SIGNAL_PIN));
+/*
+  // timer visualisation
+  if(toggle1==HIGH) {
     digitalWrite(13,HIGH);
+    toggle1 = LOW;
   } else {
     digitalWrite(13,LOW);
+    toggle1 = HIGH;
   }
+*/
   // increment or decrement brightness
   if (brightness < neededBrightness) {
     brightness += min(5, neededBrightness - brightness);
@@ -278,22 +300,65 @@ ISR(TIMER1_COMPA_vect){//timer1 interrupt 1Hz toggles pin 13 (LED)
 
 void rotCounterCount()
 {
-  if (digitalRead(PINROTB) == LOW) {
-    neededBrightness = max(neededBrightness * 1.05, neededBrightness + 1);
+  if (not generalSetup) {
+    if (digitalRead(PINROTB) == LOW) {
+      neededBrightness = max(neededBrightness * 1.05, neededBrightness + 1);
+    }
+    else {
+      neededBrightness = min(neededBrightness / 1.05, neededBrightness - 1);
+    }
+    neededBrightness = max(neededBrightness, 0); 
+    neededBrightness = min(neededBrightness, 255); 
+    //strip.setBrightness(brightness); 
+    if (state == HIGH) {
+      highBrightness = neededBrightness;
+    }
+    else {
+      lowBrightness = neededBrightness;
+    }
+    Serial.print(state);
+    Serial.print(" ");
+    Serial.println(neededBrightness, DEC);
   }
   else {
-    neededBrightness = min(neededBrightness / 1.05, neededBrightness - 1);
+    // setting a choice in the menu
+    if (digitalRead(PINROTB) == LOW) {
+      rotCounter++;
+    }
+    else {
+      rotCounter--;
+    }
+    Serial.print("M");
+    Serial.print(generalMenu);
+    Serial.print(" ");
+    Serial.println(rotCounter);
   }
-  neededBrightness = max(neededBrightness, 0); 
-  neededBrightness = min(neededBrightness, 255); 
-  //strip.setBrightness(brightness); 
-  if (state == HIGH) {
-    highBrightness = neededBrightness;
+}
+
+void rotSwitch() {
+  Serial.print("Switch pushed  ");
+  unsigned long currentMillis = millis();
+  Serial.println(currentMillis);
+  if (currentMillis - switchMillis < 800) {
+    generalSetup = not generalSetup;
+    generalBreak = generalSetup;
+    generalMenu = 0;
+    rotCounter = 0;
   }
   else {
-    lowBrightness = neededBrightness;
+    if (not generalSetup) {
+      generalBreak = not generalBreak;
+    }
+    else {
+      // action in setup
+      generalMenu++;
+      rotCounter = 0; 
+    }
   }
-  Serial.print(state);
+  switchMillis = currentMillis;
+  Serial.print(generalBreak);
   Serial.print(" ");
-  Serial.println(neededBrightness, DEC);
+  Serial.print(generalSetup);
+  Serial.print(" ");
+  Serial.println(generalMenu);
 }
