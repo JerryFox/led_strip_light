@@ -81,10 +81,10 @@ boolean toggle1 = 0;
 #define PINROTB 5  // second pin of rotary encoder
 #define PINROTSW 3  // RE push switch 
 volatile int rotCounter = 0;    // rotary encoder counter 
-boolean generalBreak = false;   // light switch off
-boolean generalSetup = false;   // light setup
-unsigned long switchMillis = 0; // last switch push time
-byte generalMenu = 0;  // menu number for setup
+volatile boolean generalBreak = false;   // light switch off
+volatile boolean generalSetup = false;   // light setup
+volatile unsigned long switchMillis = 0; // last switch push time
+volatile byte generalMenu = 0;  // menu number for setup
 
 //==================================================================
 //==================================================================
@@ -160,23 +160,37 @@ void setup()
 }
 
 void loop() {
-  // Fill along the length of the strip in various colors...
-  //colorWipe(strip.Color(255,   0,   0), 50); // Red
-  //colorWipe(strip.Color(  0, 255,   0), 50); // Green
-  //colorWipe(strip.Color(  0,   0, 255), 50); // Blue
-
-  // Do a theater marquee effect in various colors...
-  //theaterChase(strip.Color(127, 127, 127), 50); // White, half brightness
-  //theaterChase(strip.Color(127,   0,   0), 50); // Red, half brightness
-  //theaterChase(strip.Color(  0,   0, 127), 50); // Blue, half brightness
-
-  rainbow(10);             // Flowing rainbow cycle along the whole strip
-  //theaterChaseRainbow(50); // Rainbow-enhanced theaterChase variant
-  if (generalBreak) {
-    strip.clear();
+  if (not generalBreak) {
+    // Fill along the length of the strip in various colors...
+    //colorWipe(strip.Color(255,   0,   0), 50); // Red
+    //colorWipe(strip.Color(  0, 255,   0), 50); // Green
+    //colorWipe(strip.Color(  0,   0, 255), 50); // Blue
+  
+    // Do a theater marquee effect in various colors...
+    //theaterChase(strip.Color(127, 127, 127), 50); // White, half brightness
+    //theaterChase(strip.Color(127,   0,   0), 50); // Red, half brightness
+    //theaterChase(strip.Color(  0,   0, 127), 50); // Blue, half brightness
+  
+    rainbow(10);             // Flowing rainbow cycle along the whole strip
+    //theaterChaseRainbow(50); // Rainbow-enhanced theaterChase variant
+    if (generalBreak) {
+      strip.clear();
+      strip.show();
+    }
+  }
+  if (generalSetup) {
+    // display menu item and value
+    strip.setBrightness(max(30, highBrightness));
+    strip.clear(); 
+    // menu item - number of blue pixels
+    for (int i=0; i<=generalMenu; i++) strip.setPixelColor(i, strip.Color(0, 0, 255));  
+    // value
+    byte r=0, g=0, b=0;
+    if (rotCounter >= 0) g = 255; else r = 255;
+    int value = abs(rotCounter);
+    for (int i=0; i<value; i++) strip.setPixelColor(i + generalMenu + 1, strip.Color(r, g, b));  
     strip.show();
   }
-  //Serial.println("loop");
 }
 
 void moveSens() {
@@ -339,7 +353,7 @@ void rotSwitch() {
   Serial.print("Switch pushed  ");
   unsigned long currentMillis = millis();
   Serial.println(currentMillis);
-  if (currentMillis - switchMillis < 800) {
+  if (currentMillis - switchMillis < 500) { // limit for doubleclick
     generalSetup = not generalSetup;
     generalBreak = generalSetup;
     generalMenu = 0;
